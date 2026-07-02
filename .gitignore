@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+.venv/
+venv/
+env/
+ENV/
+
+# Build outputs
+dist/
+static/
+build/
+*.egg-info/
+__pycache__/
+*.py[cod]
+
+# Sensitive config
+.env
+.env*.local
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Local/user state — recreated by the app (never publish strategy lists or
+# shadow-sim settings)
+backend/settings.json
+backend/strategies.json
+backend/universes.json
+backend/ranking_systems.json
+backend/strategy_*_dump.json
+backend/p123_openapi.txt
+
+# Dev exploration / one-off research scripts
+scratch/
+backend/dump_strategies.py
+backend/inspect_strategies.py
+backend/scan_ids.py
+backend/compare_dumps.py
+backend/compare_summary_details.py
+backend/get_swagger.py
+
+# Deployment target config (copy deploy.env.example)
+deploy.env

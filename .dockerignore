@@ -1,0 +1,10 @@
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.env
+**/node_modules
+**/dist
+**/.venv
+**/.DS_Store
+**/.git
+**/coverage

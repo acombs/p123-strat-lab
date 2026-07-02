@@ -1,0 +1,401 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400;1,700&family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&family=Geist:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Graphite & Vellum (Light Theme) */
+  --paper-bg: #FAF9F9;
+  --card-bg: #FAF9F9;
+  --card-white: #FFFFFF;
+  --text-main: #1A1C1C;
+  --text-muted: #444748;
+  --border-color: #747878;
+  --border-color-light: #C4C7C7;
+
+  /* Accent Colors (Light Theme) */
+  --pastel-blue-bg: #E4E2E2;
+  --pastel-blue-text: #1B1C1C;
+  
+  --pastel-green-bg: #E1EBE2;
+  --pastel-green-text: #224E2F;
+  
+  --pastel-red-bg: #FFDAD6;
+  --pastel-red-text: #93000A;
+  
+  --pastel-yellow-bg: #E4E2DC;
+  --pastel-yellow-text: #1B1C18;
+
+  /* Button Fills (Light Theme) */
+  --btn-primary-bg: #111111;
+  --btn-primary-text: #FFFFFF;
+  --btn-primary-hover: #262626;
+
+  --btn-save-bg: #5F5F59;
+  --btn-save-text: #FFFFFF;
+  --btn-save-hover: #474742;
+
+  /* Chart Colors (Light Theme) */
+  --chart-portfolio: #111111;
+  --chart-benchmark: #747878;
+}
+
+.dark {
+  /* Obsidian Vellum (Dark Theme) */
+  --paper-bg: #121416;   /* Deep ink-pool charcoal */
+  --card-bg: #1A1C1E;    /* surface-container-low */
+  --card-white: #1E2022; /* surface-container */
+  --text-main: #E2E2E5;  /* cool white (on-surface) */
+  --text-muted: #C5C6CA; /* on-surface-variant */
+  --border-color: #8F9194; /* outline */
+  --border-color-light: #44474A; /* outline-variant */
+
+  /* Pastels Dark (chalky muted tones) */
+  --pastel-blue-bg: #3C475A; /* secondary-container */
+  --pastel-blue-text: #AAB6CC; /* on-secondary-container */
+
+  --pastel-green-bg: #162C1E; /* chalky sage background */
+  --pastel-green-text: #A5D6A7; /* chalky sage text */
+
+  --pastel-red-bg: #93000A; /* error-container */
+  --pastel-red-text: #FFDAD6; /* on-error-container */
+
+  --pastel-yellow-bg: #333537; /* surface-container-highest */
+  --pastel-yellow-text: #E2E2E5;
+
+  /* Button Fills Dark */
+  --btn-primary-bg: #FFFEFF; /* Pure white button */
+  --btn-primary-text: #2D3134; /* on-primary */
+  --btn-primary-hover: #E0E2E6;
+
+  --btn-save-bg: #BCC7DD; /* Secondary button solid fill */
+  --btn-save-text: #263142;
+  --btn-save-hover: #AAB6CC;
+
+  /* Chart Colors Dark */
+  --chart-portfolio: #FFFEFF; /* Pure white line */
+  --chart-benchmark: #8F9194; /* outline / charcoal line */
+}
+
+@layer base {
+  html {
+    @apply antialiased;
+  }
+
+  body {
+    background-color: var(--paper-bg);
+    color: var(--text-main);
+    font-family: 'Inter', system-ui, sans-serif;
+    transition: background-color 0.2s ease, color 0.2s ease;
+    position: relative;
+  }
+
+  body::before {
+    content: "";
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 9999;
+    pointer-events: none;
+    opacity: 0.03; /* 3% opacity subtle paper grain overlay */
+    background: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  }
+
+  * {
+    border-color: var(--border-color-light);
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Space Mono', monospace;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    text-transform: uppercase;
+  }
+
+  ::-webkit-scrollbar {
+    @apply w-2 h-2;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-color-light);
+  }
+}
+
+@layer components {
+  .card {
+    background-color: var(--card-bg);
+    border: 1.5px solid var(--border-color);
+    border-radius: 0px !important; /* Sharp 90-degree corners */
+    box-shadow: none !important;   /* No shadows */
+    transition: background-color 0.2s, border-color 0.2s;
+  }
+
+  /* Input fields are simple horizontal lines (bottom-border only) */
+  .input-base {
+    @apply w-full px-1 py-1.5 text-sm outline-none transition-all duration-150;
+    border-top: none !important;
+    border-left: none !important;
+    border-right: none !important;
+    border-bottom: 2px solid var(--border-color) !important;
+    background-color: transparent !important;
+    color: var(--text-main);
+    border-radius: 0px !important;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  .input-base:focus:not(:disabled) {
+    border-bottom-color: var(--text-main) !important;
+    box-shadow: none !important;
+  }
+  .input-base::placeholder {
+    color: var(--text-muted);
+    opacity: 0.6;
+  }
+
+  /* Select dropdowns are simple horizontal lines (bottom-border only) */
+  .select-base {
+    @apply w-full cursor-pointer appearance-none px-1 py-1.5 pr-8 text-sm outline-none transition-all duration-150;
+    border-top: none !important;
+    border-left: none !important;
+    border-right: none !important;
+    border-bottom: 2px solid var(--border-color) !important;
+    background-color: transparent !important;
+    color: var(--text-main);
+    border-radius: 0px !important;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  .select-base:focus:not(:disabled) {
+    border-bottom-color: var(--text-main) !important;
+    box-shadow: none !important;
+  }
+
+  /* Solid Core Primary Button (Run Backtest) */
+  .btn-primary {
+    @apply inline-flex items-center gap-2 px-4 py-2 text-xs font-bold transition-all duration-150 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50;
+    background-color: var(--btn-primary-bg) !important;
+    color: var(--btn-primary-text) !important;
+    border: 2px solid var(--btn-primary-bg) !important;
+    border-radius: 0px !important; /* Sharp 90-degree corners */
+    font-family: 'Inter', system-ui, sans-serif;
+    box-shadow: none !important;
+  }
+  .btn-primary:hover:not(:disabled) {
+    background-color: var(--btn-primary-hover) !important;
+    border-color: var(--btn-primary-hover) !important;
+  }
+
+  /* Solid Core Secondary Button (Save) */
+  .btn-save {
+    @apply inline-flex items-center gap-2 px-4 py-2 text-xs font-bold transition-all duration-150 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50;
+    background-color: var(--btn-save-bg) !important;
+    color: var(--btn-save-text) !important;
+    border: 2px solid var(--btn-save-bg) !important;
+    border-radius: 0px !important; /* Sharp 90-degree corners */
+    font-family: 'Inter', system-ui, sans-serif;
+    box-shadow: none !important;
+  }
+  .btn-save:hover:not(:disabled) {
+    background-color: var(--btn-save-hover) !important;
+    border-color: var(--btn-save-hover) !important;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center gap-2 rounded-none px-3 py-2 text-sm font-semibold transition-colors duration-150;
+    color: var(--text-muted);
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  .btn-ghost:hover:not(:disabled) {
+    background-color: rgba(25, 25, 25, 0.05);
+    color: var(--text-main);
+  }
+  .dark .btn-ghost:hover:not(:disabled) {
+    background-color: rgba(250, 249, 245, 0.05);
+  }
+
+  .btn-danger {
+    @apply inline-flex items-center gap-1.5 rounded-none px-2.5 py-1.5 text-xs font-bold transition-all duration-150;
+    background-color: var(--pastel-red-bg);
+    color: var(--pastel-red-text);
+    border: 1.5px solid var(--border-color);
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  .btn-danger:hover:not(:disabled) {
+    background-color: var(--pastel-red-bg);
+    opacity: 0.85;
+  }
+
+  .label {
+    @apply block text-[10px] font-bold uppercase tracking-wider mb-1;
+    color: var(--text-muted);
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  /* Preset Pills: transparent background with heavy border (2px) and sharp corners */
+  .pill-btn {
+    @apply rounded-none px-3 py-1.5 text-xs font-bold transition-all duration-150;
+    background-color: transparent !important;
+    color: var(--text-muted);
+    border: 2px solid var(--border-color) !important;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  .pill-btn:hover {
+    color: var(--text-main);
+    background-color: rgba(17, 17, 17, 0.08) !important;
+  }
+  .dark .pill-btn:hover {
+    background-color: rgba(236, 239, 241, 0.08) !important;
+  }
+
+  .pill-btn-active {
+    @apply rounded-none px-3 py-1.5 text-xs font-bold transition-all duration-150;
+    background-color: var(--btn-primary-bg) !important;
+    color: var(--btn-primary-text) !important;
+    border: 2px solid var(--btn-primary-bg) !important;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  .metric-card {
+    @apply card flex flex-col gap-0.5 p-4;
+  }
+
+  .metric-value {
+    @apply text-2xl font-bold tracking-tight mt-1;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-variant-numeric: tabular-nums; /* Tabular figures for alignment */
+  }
+  .metric-label {
+    @apply text-[10px] font-bold uppercase tracking-wider;
+    color: var(--text-muted);
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  .positive {
+    color: var(--pastel-green-text);
+  }
+  .negative {
+    color: var(--pastel-red-text);
+  }
+  .neutral {
+    color: var(--text-muted);
+  }
+}
+
+/* Custom flat tab styles */
+.tab-btn {
+  @apply shrink-0 px-4 py-3 text-xs font-bold transition-all duration-150 border-r border-slate-200/5;
+  color: var(--text-muted);
+  font-family: 'Inter', system-ui, sans-serif;
+}
+.tab-btn:hover {
+  background-color: rgba(25, 25, 25, 0.02);
+  color: var(--text-main);
+}
+.tab-btn-active {
+  @apply shrink-0 px-4 py-3 text-xs font-bold transition-all duration-150 border-r border-slate-200/5;
+  background-color: var(--card-white);
+  color: var(--text-main);
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+/* Recharts dark mode tweaks */
+.recharts-cartesian-axis-tick-value {
+  fill: var(--text-muted) !important;
+  font-family: 'Space Mono', monospace;
+  font-size: 9px;
+}
+.recharts-legend-item-text {
+  color: var(--text-main) !important;
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 11px;
+}
+.recharts-cartesian-grid-horizontal line,
+.recharts-cartesian-grid-vertical line {
+  stroke: var(--border-color) !important;
+  stroke-dasharray: 1 5 !important; /* Dot grid pattern (graph paper feel) */
+  stroke-opacity: 0.5 !important;
+}
+
+.recharts-tooltip-wrapper {
+  box-shadow: none !important;
+}
+
+/* Obsidian Vellum - Exclusive Typography Overrides */
+.dark,
+.dark body,
+.dark button,
+.dark input,
+.dark select,
+.dark textarea,
+.dark p,
+.dark div:not(.label):not(.metric-label):not(.recharts-cartesian-axis-tick-value),
+.dark span:not(.label):not(.metric-label),
+.dark a,
+.dark li,
+.dark .recharts-legend-item-text {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
+}
+
+.dark h1,
+.dark h2,
+.dark h3,
+.dark h4,
+.dark h5,
+.dark h6 {
+  font-family: 'Geist', system-ui, -apple-system, sans-serif !important;
+  text-transform: none !important; /* Geist is clean and geometric, no forced uppercase */
+  letter-spacing: -0.01em !important;
+}
+
+.dark .label,
+.dark .metric-label,
+.dark label,
+.dark .font-mono,
+.dark code,
+.dark .recharts-cartesian-axis-tick-value {
+  font-family: 'JetBrains Mono', monospace !important;
+  letter-spacing: 0.05em !important;
+}
+
+/* Obsidian Vellum - Shape/Roundedness Overrides */
+.dark .card {
+  border-radius: 0.5rem !important; /* rounded-lg (0.5rem) */
+}
+
+.dark .btn-primary,
+.dark .btn-save,
+.dark .btn-danger,
+.dark .pill-btn,
+.dark .pill-btn-active,
+.dark .input-base,
+.dark .select-base,
+.dark .tab-btn,
+.dark .tab-btn-active,
+.dark .recharts-tooltip-wrapper > div {
+  border-radius: 0.25rem !important; /* rounded (0.25rem) */
+}
+
+/* Obsidian Vellum - Modal Backdrop Blurs */
+.dark div[role="dialog"] > div:first-child {
+  background-color: rgba(12, 14, 16, 0.6) !important;
+  backdrop-filter: blur(24px) !important;
+  -webkit-backdrop-filter: blur(24px) !important;
+}
+
+/* Progress indicator - Tactile hatching animation */
+@keyframes progress-hatch {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 32px 0;
+  }
+}
+.animate-progress-hatch {
+  animation: progress-hatch 0.8s linear infinite;
+}
+
+
