@@ -5,8 +5,7 @@ rules, universes, ranking systems, and rebalance settings against P123's simulat
 without modifying your real strategies — then commit a configuration back to Portfolio123 only
 when you're happy with it.
 
-Built with FastAPI + React (Vite, Tailwind, Recharts), deployed on Google Cloud Run behind
-Identity-Aware Proxy.
+Built with FastAPI + React (Vite, Tailwind, Recharts), deployed on Google Cloud Run.
 
 ![Equity curve and performance metrics](docs/screenshots/equity-curve.webp)
 
