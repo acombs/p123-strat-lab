@@ -8,6 +8,8 @@ when you're happy with it.
 Built with FastAPI + React (Vite, Tailwind, Recharts), deployed on Google Cloud Run behind
 Identity-Aware Proxy.
 
+![Equity curve and performance metrics](docs/screenshots/equity-curve.webp)
+
 > Independent community project. Not affiliated with, sponsored by, or endorsed by
 > Portfolio123, Inc. Nothing here is investment advice.
 
@@ -34,6 +36,22 @@ Identity-Aware Proxy.
   header, with a low-credit warning.
 - **Durable state** — strategy/universe/ranking-system lists and settings persist to a GCS
   bucket in production (Cloud Run filesystems are ephemeral and per-instance).
+
+## Screenshots
+
+**Monte Carlo** — block-bootstrapped forward paths with drawdown risk and trade-level edge stats:
+
+![Monte Carlo simulation](docs/screenshots/monte-carlo.webp)
+
+**Robustness** — every rolling investment window, strategy vs. benchmark:
+
+![Rolling-window robustness](docs/screenshots/robustness.webp)
+
+**Rolling returns** and the **strategy configuration** form with verified formula autocomplete:
+
+![Rolling 52-week returns](docs/screenshots/rolling-returns.webp)
+
+![Strategy configuration](docs/screenshots/strategy-config.webp)
 
 ## How the shadow sim works
 
