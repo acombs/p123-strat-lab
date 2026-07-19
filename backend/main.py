@@ -833,6 +833,276 @@ def get_strategy_transactions(strategy_id: int, start: str, end: str):
     return {"trans": trans or [], "quota": QUOTA_STATE}
 
 
+# ── Perturbation testing ──────────────────────────────────────────────────────
+# Sensitivity analysis: rerun the shadow sim over a list of config variants and
+# collect the metrics of each. This burns real API quota (one rerun per
+# variant), so a job starts ONLY from an explicit request — nothing here runs
+# automatically. Runs execute serially in a background thread (P123 allows one
+# in-flight request per key) and the job persists after every run.
+
+_PERTURB_LOCK = threading.Lock()
+_PERTURB_CANCEL = threading.Event()
+_PERTURB_STATE: dict = {"state": "idle", "runs": []}
+
+
+class PerturbRun(BaseModel):
+    id: str
+    label: str
+    group: str  # 'baseline' | 'oat' | 'joint'
+    param: Optional[str] = None
+    value: Optional[Union[float, str]] = None
+    base: Optional[Union[float, str]] = None  # the param's baseline value
+    config: BacktestRequest
+
+
+class PerturbStartRequest(BaseModel):
+    runs: list[PerturbRun]
+    quotaFloor: int = 500
+
+
+def _perturb_snapshot() -> dict:
+    with _PERTURB_LOCK:
+        return json.loads(json.dumps(_PERTURB_STATE))
+
+
+def _config_key(cfg: Optional[dict]) -> str:
+    return json.dumps(cfg or {}, sort_keys=True)
+
+
+_PERTURB_INDEX_MAX = 20
+_JOB_ID_RE = re.compile(r"^[0-9]{8}-[0-9]{6}$")
+
+
+def _perturb_job_summary(snap: dict, strategies: Optional[list[dict]] = None) -> dict:
+    runs = snap.get("runs", [])
+    params = sorted({r.get("param") for r in runs if r.get("param")})
+    base = next((r for r in runs if r.get("group") == "baseline" and r.get("metrics")), None)
+    cfg = (base or (runs[0] if runs else {})).get("config") or {}
+    sid = cfg.get("strategyId")
+    if strategies is None:
+        strategies = _load_strategies_list()
+    strategy = next(
+        (s["name"] for s in strategies if s["id"] == sid),
+        f"Strategy {sid}" if sid else "?",
+    )
+    return {
+        "jobId": snap.get("jobId"),
+        "startedAt": snap.get("startedAt"),
+        "finishedAt": snap.get("finishedAt"),
+        "state": snap.get("state"),
+        "total": snap.get("total"),
+        "completed": snap.get("completed"),
+        "params": params,
+        "baselineCagr": (base or {}).get("metrics", {}).get("cagr"),
+        "window": f"{cfg.get('startDate', '?')} → {cfg.get('endDate', '?')}",
+        "strategyId": sid,
+        "strategy": strategy,
+    }
+
+
+def _update_perturb_index(snap: dict):
+    index = storage.load_json("perturb_jobs", [])
+    entry = _perturb_job_summary(snap)
+    index = [e for e in index if e.get("jobId") != entry["jobId"]]
+    index.insert(0, entry)
+    storage.save_json("perturb_jobs", index[:_PERTURB_INDEX_MAX])
+
+
+def _persist_perturb(final: bool = False):
+    """Per-run persistence writes only perturb_last (crash recovery); the
+    per-job archive and index are rewritten once, at job end — on GCS-backed
+    deployments each extra write is a network round-trip under the storage
+    lock, and _update_perturb_index re-summarizes the whole index."""
+    snap = _perturb_snapshot()
+    storage.save_json("perturb_last", snap)
+    if final and snap.get("jobId"):
+        storage.save_json(f"perturb_job_{snap['jobId']}", snap)
+        _update_perturb_index(snap)
+
+
+def _perturb_worker(runs: list[PerturbRun], quota_floor: int):
+    consecutive_errors = 0
+    final_state = "done"
+    for i, run in enumerate(runs):
+        if _PERTURB_CANCEL.is_set():
+            final_state = "cancelled"
+            break
+        with _PERTURB_LOCK:
+            prefilled = bool(_PERTURB_STATE["runs"][i].get("metrics"))
+        if prefilled:  # e.g. baseline reused from the previous job
+            with _PERTURB_LOCK:
+                _PERTURB_STATE["completed"] = i + 1
+            continue
+        qr = QUOTA_STATE.get("quotaRemaining")
+        if qr is not None and qr < quota_floor:
+            final_state = "halted_quota"
+            break
+
+        quota_before = QUOTA_STATE.get("quotaRemaining")
+        started = time.time()
+        try:
+            result = run_backtest(run.config)
+            entry = {
+                "metrics": result.get("metrics"),
+                "warning": result.get("warning"),
+                "elapsedSec": round(time.time() - started, 1),
+            }
+            consecutive_errors = 0
+        except HTTPException as he:
+            entry = {"error": str(he.detail), "elapsedSec": round(time.time() - started, 1)}
+            consecutive_errors += 1
+        except Exception as e:
+            entry = {"error": str(e), "elapsedSec": round(time.time() - started, 1)}
+            consecutive_errors += 1
+
+        quota_after = QUOTA_STATE.get("quotaRemaining")
+        if quota_before is not None and quota_after is not None:
+            entry["costCredits"] = max(0, quota_before - quota_after)
+
+        with _PERTURB_LOCK:
+            _PERTURB_STATE["runs"][i].update(entry)
+            _PERTURB_STATE["completed"] = i + 1
+            _PERTURB_STATE["quotaRemaining"] = quota_after
+        _persist_perturb()
+
+        # The baseline failing means every variant will fail the same way, and
+        # two consecutive failures suggests a broken config — stop burning quota.
+        if consecutive_errors and (run.group == "baseline" or consecutive_errors >= 2):
+            final_state = "error"
+            break
+
+    with _PERTURB_LOCK:
+        _PERTURB_STATE["state"] = final_state
+        _PERTURB_STATE["finishedAt"] = datetime.utcnow().isoformat() + "Z"
+    _persist_perturb(final=True)
+
+
+@app.post("/api/perturb/start")
+def perturb_start(req: PerturbStartRequest):
+    if not req.runs:
+        raise HTTPException(status_code=400, detail="No perturbation runs supplied.")
+    if len(req.runs) > 200:
+        raise HTTPException(status_code=400, detail="Perturbation jobs are capped at 200 runs.")
+    settings = _load_settings()
+    if not (settings.get("shadowSimId") or settings.get("shadowSimIdStatic")):
+        raise HTTPException(
+            status_code=400,
+            detail="Perturbation testing requires a shadow sim in Settings — otherwise every "
+                   "variant would overwrite the real strategy on Portfolio123."
+        )
+    with _PERTURB_LOCK:
+        if _PERTURB_STATE.get("state") == "running":
+            raise HTTPException(status_code=409, detail="A perturbation job is already running.")
+        _PERTURB_CANCEL.clear()
+        _PERTURB_STATE.clear()
+        _PERTURB_STATE.update({
+            "jobId": datetime.utcnow().strftime("%Y%m%d-%H%M%S"),
+            "state": "running",
+            "startedAt": datetime.utcnow().isoformat() + "Z",
+            "finishedAt": None,
+            "total": len(req.runs),
+            "completed": 0,
+            "quotaFloor": req.quotaFloor,
+            "quotaRemaining": QUOTA_STATE.get("quotaRemaining"),
+            "runs": [
+                {
+                    "id": r.id,
+                    "label": r.label,
+                    "group": r.group,
+                    "param": r.param,
+                    "value": r.value,
+                    "base": r.base,
+                    "config": r.config.dict(),
+                }
+                for r in req.runs
+            ],
+        })
+    # Reuse the previous job's baseline when its config is identical — rerunning
+    # it would reproduce the same numbers and burn credits doing it.
+    last = storage.load_json("perturb_last", None)
+    if last:
+        prev_base = next((r for r in last.get("runs", []) if r.get("group") == "baseline" and r.get("metrics")), None)
+        with _PERTURB_LOCK:
+            new_base = next((r for r in _PERTURB_STATE["runs"] if r["group"] == "baseline"), None)
+            if prev_base and new_base and _config_key(prev_base.get("config")) == _config_key(new_base["config"]):
+                new_base.update({
+                    "metrics": prev_base["metrics"],
+                    "warning": prev_base.get("warning"),
+                    "costCredits": 0,
+                    "reused": True,
+                })
+
+    threading.Thread(target=_perturb_worker, args=(req.runs, req.quotaFloor), daemon=True).start()
+    return {"jobId": _PERTURB_STATE["jobId"], "total": len(req.runs)}
+
+
+@app.get("/api/perturb/status")
+def perturb_status():
+    snap = _perturb_snapshot()
+    if snap.get("state") == "idle":
+        # Nothing in memory (e.g. after a restart) — restore the last persisted job.
+        last = storage.load_json("perturb_last", None)
+        if last:
+            if last.get("state") == "running":
+                # The worker thread died with the old process; mark it honestly
+                # and persist so the archive/index don't keep a ghost "running"
+                # job forever.
+                last["state"] = "error"
+                last["interrupted"] = True
+                storage.save_json("perturb_last", last)
+                if last.get("jobId"):
+                    storage.save_json(f"perturb_job_{last['jobId']}", last)
+                    _update_perturb_index(last)
+            return {**last, "quota": QUOTA_STATE}
+    return {**snap, "quota": QUOTA_STATE}
+
+
+@app.get("/api/perturb/jobs")
+def perturb_jobs():
+    index = storage.load_json("perturb_jobs", [])
+    if not index:
+        # Backfill from jobs persisted before the index existed.
+        last = storage.load_json("perturb_last", None)
+        if last and last.get("jobId"):
+            storage.save_json(f"perturb_job_{last['jobId']}", last)
+            _update_perturb_index(last)
+            index = storage.load_json("perturb_jobs", [])
+    # Entries indexed before the strategy field existed: rebuild them from the
+    # persisted job files (each run stores its full config).
+    changed = False
+    strategies = None
+    for i, entry in enumerate(index):
+        if "strategy" not in entry and entry.get("jobId"):
+            job = storage.load_json(f"perturb_job_{entry['jobId']}", None)
+            if job:
+                if strategies is None:
+                    strategies = _load_strategies_list()
+                index[i] = _perturb_job_summary(job, strategies)
+                changed = True
+    if changed:
+        storage.save_json("perturb_jobs", index)
+    return index
+
+
+@app.get("/api/perturb/jobs/{job_id}")
+def perturb_job(job_id: str):
+    if not _JOB_ID_RE.match(job_id):
+        raise HTTPException(status_code=400, detail="Invalid job id.")
+    job = storage.load_json(f"perturb_job_{job_id}", None)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Perturbation job {job_id} not found.")
+    return job
+
+
+@app.post("/api/perturb/cancel")
+def perturb_cancel():
+    with _PERTURB_LOCK:
+        if _PERTURB_STATE.get("state") != "running":
+            raise HTTPException(status_code=400, detail="No perturbation job is running.")
+    _PERTURB_CANCEL.set()
+    return {"status": "cancelling"}
+
+
 # ── Monte Carlo & robustness analytics ────────────────────────────────────────
 # These run entirely on data already returned by a backtest (daily equity curve
 # and the sim's transaction log) — no P123 quota is consumed except a single

@@ -150,6 +150,52 @@ export interface PinnedPeriod {
   endDate: string
 }
 
+export type PerturbGroup = 'baseline' | 'oat' | 'joint'
+
+export interface PerturbRunResult {
+  id: string
+  label: string
+  group: PerturbGroup
+  param?: string | null
+  value?: number | string | null
+  base?: number | string | null
+  config?: StrategyConfig
+  metrics?: Metrics
+  warning?: string | null
+  error?: string
+  costCredits?: number
+  elapsedSec?: number
+  reused?: boolean
+}
+
+export interface PerturbJob {
+  jobId?: string
+  state: 'idle' | 'running' | 'done' | 'cancelled' | 'halted_quota' | 'error'
+  startedAt?: string
+  finishedAt?: string | null
+  total?: number
+  completed?: number
+  quotaFloor?: number
+  quotaRemaining?: number | null
+  interrupted?: boolean
+  runs: PerturbRunResult[]
+  quota?: QuotaInfo
+}
+
+export interface PerturbJobSummary {
+  jobId: string
+  startedAt?: string
+  finishedAt?: string | null
+  state: string
+  total?: number
+  completed?: number
+  params: string[]
+  baselineCagr?: number | null
+  window?: string
+  strategyId?: number | null
+  strategy?: string
+}
+
 export interface SelectOption {
   value: string
   label: string

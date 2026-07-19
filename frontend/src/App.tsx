@@ -473,7 +473,7 @@ export default function App() {
                 <span className="font-semibold">Success: </span>{success}
               </div>
             )}
-            <Results result={result} loading={loading} />
+            <Results result={result} loading={loading} config={config} />
           </div>
 
           {/* Bottom: Strategy Configuration Form */}

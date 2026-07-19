@@ -27,6 +27,9 @@ backend/settings.json
 backend/strategies.json
 backend/universes.json
 backend/ranking_systems.json
+backend/perturb_last.json
+backend/perturb_jobs.json
+backend/perturb_job_*.json
 backend/strategy_*_dump.json
 backend/p123_openapi.txt
 

@@ -13,6 +13,7 @@ import {
   YAxis,
 } from 'recharts'
 import type { EquityCurvePoint, MonteCarloResult } from '../../types'
+import { BAR_ACTIVE, TOOLTIP_PROPS } from './chartTheme'
 
 interface Props {
   curve: EquityCurvePoint[]
@@ -203,10 +204,12 @@ export default function MonteCarloPanel({ curve, simId }: Props) {
                   <XAxis dataKey="bin" tickFormatter={(v: number) => `${v.toFixed(0)}%`} />
                   <YAxis hide />
                   <Tooltip
+                    {...TOOLTIP_PROPS}
+                    cursor={false}
                     formatter={(v: number) => [`${v} paths`, 'Count']}
                     labelFormatter={(v: number) => `Max DD ≈ ${v.toFixed(1)}%`}
                   />
-                  <Bar dataKey="count" fill="var(--chart-benchmark)" isAnimationActive={false} />
+                  <Bar dataKey="count" fill="var(--chart-benchmark)" isAnimationActive={false} activeBar={BAR_ACTIVE} />
                 </BarChart>
               </ResponsiveContainer>
             </div>

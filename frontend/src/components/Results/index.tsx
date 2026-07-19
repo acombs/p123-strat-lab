@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { BacktestResult } from '../../types'
+import type { BacktestResult, StrategyConfig } from '../../types'
 import Spinner from '../Spinner'
 import AnnualReturnsChart from './AnnualReturnsChart'
 import DrawdownChart from './DrawdownChart'
@@ -8,14 +8,16 @@ import MetricsGrid from './MetricsGrid'
 import RollingChart from './RollingChart'
 import TradesPanel from './TradesPanel'
 import MonteCarloPanel from './MonteCarloPanel'
+import PerturbationsPanel from './PerturbationsPanel'
 import RobustnessPanel from './RobustnessPanel'
 
 interface Props {
   result: BacktestResult | null
   loading: boolean
+  config: StrategyConfig
 }
 
-type ChartTab = 'equity' | 'drawdown' | 'rolling-sharpe' | 'rolling-returns' | 'annual' | 'monte-carlo' | 'robustness' | 'trades'
+type ChartTab = 'equity' | 'drawdown' | 'rolling-sharpe' | 'rolling-returns' | 'annual' | 'monte-carlo' | 'robustness' | 'perturbations' | 'trades'
 
 const TABS: { key: ChartTab; label: string }[] = [
   { key: 'equity', label: 'Equity Curve' },
@@ -25,10 +27,11 @@ const TABS: { key: ChartTab; label: string }[] = [
   { key: 'annual', label: 'Annual Returns' },
   { key: 'monte-carlo', label: 'Monte Carlo' },
   { key: 'robustness', label: 'Robustness' },
+  { key: 'perturbations', label: 'Perturbations' },
   { key: 'trades', label: 'Trades' },
 ]
 
-export default function Results({ result, loading }: Props) {
+export default function Results({ result, loading, config }: Props) {
   const [activeTab, setActiveTab] = useState<ChartTab>('equity')
 
   if (loading) {
@@ -39,28 +42,46 @@ export default function Results({ result, loading }: Props) {
     )
   }
 
-  if (!result) {
+  // No result: still render the tab bar so saved perturbation jobs are
+  // viewable without paying for a fresh backtest; every other tab shows the
+  // empty-state hint.
+  if (!result && activeTab !== 'perturbations') {
     return (
-      <div className="card flex min-h-[480px] flex-col items-center justify-center gap-4 p-12 text-center">
-        <div className="flex h-16 w-16 items-center justify-center rounded-none bg-[var(--paper-bg)] text-[var(--text-muted)] border border-[var(--border-color)]">
-          <svg className="h-8 w-8 text-[var(--text-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-              d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-          </svg>
+      <div className="card flex min-h-[480px] flex-col">
+        <div className="flex overflow-x-auto border-b border-[var(--border-color-light)] bg-[var(--paper-bg)]">
+          {TABS.map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => setActiveTab(key)}
+              className={activeTab === key ? 'tab-btn-active' : 'tab-btn'}
+            >
+              {label}
+            </button>
+          ))}
         </div>
-        <div>
-          <p className="text-base font-semibold text-[var(--text-main)]">
-            No results yet
-          </p>
-          <p className="mt-1 text-sm text-[var(--text-muted)]">
-            Configure your strategy and click Run Backtest
-          </p>
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 p-12 text-center">
+          <div className="flex h-16 w-16 items-center justify-center rounded-none bg-[var(--paper-bg)] text-[var(--text-muted)] border border-[var(--border-color)]">
+            <svg className="h-8 w-8 text-[var(--text-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            </svg>
+          </div>
+          <div>
+            <p className="text-base font-semibold text-[var(--text-main)]">
+              No results yet
+            </p>
+            <p className="mt-1 text-sm text-[var(--text-muted)]">
+              Configure your strategy and click Run Backtest — or open the Perturbations tab to review saved sensitivity jobs
+            </p>
+          </div>
         </div>
       </div>
     )
   }
 
-  const { equityCurve, annualReturns, metrics } = result
+  const equityCurve = result?.equityCurve ?? []
+  const annualReturns = result?.annualReturns ?? []
+  const metrics = result?.metrics ?? null
 
   return (
     <div className="grid gap-6 grid-cols-1 lg:grid-cols-[1fr_320px] xl:grid-cols-[1fr_360px]">
@@ -117,7 +138,7 @@ export default function Results({ result, loading }: Props) {
                 <p className="mb-3 text-xs text-[var(--text-muted)]">
                   What could the future look like if returns resemble this backtest? Block-bootstrapped paths from the daily returns.
                 </p>
-                <MonteCarloPanel curve={equityCurve} simId={result.runSimId} />
+                <MonteCarloPanel curve={equityCurve} simId={result?.runSimId} />
               </div>
             )}
             {activeTab === 'robustness' && (
@@ -128,12 +149,20 @@ export default function Results({ result, loading }: Props) {
                 <RobustnessPanel curve={equityCurve} />
               </div>
             )}
+            {activeTab === 'perturbations' && (
+              <div>
+                <p className="mb-3 text-xs text-[var(--text-muted)]">
+                  Parameter sensitivity — is the current config a robust plateau or a fitted peak?
+                </p>
+                <PerturbationsPanel config={config} />
+              </div>
+            )}
             {activeTab === 'trades' && (
               <div>
                 <p className="mb-3 text-xs text-[var(--text-muted)]">
                   Transactions recorded by the simulation run
                 </p>
-                {result.runSimId && equityCurve.length > 1 ? (
+                {result?.runSimId && equityCurve.length > 1 ? (
                   <TradesPanel
                     simId={result.runSimId}
                     start={equityCurve[0].date}
@@ -158,7 +187,13 @@ export default function Results({ result, loading }: Props) {
           </h3>
         </div>
         <div className="flex-1 pr-1">
-          <MetricsGrid metrics={metrics} />
+          {metrics ? (
+            <MetricsGrid metrics={metrics} />
+          ) : (
+            <p className="px-1 text-xs text-[var(--text-muted)]">
+              Run a backtest to populate metrics.
+            </p>
+          )}
         </div>
       </div>
     </div>
