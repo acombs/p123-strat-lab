@@ -10,7 +10,7 @@ RUN npm run build
 
 
 # ── Stage 2: Python backend + built frontend ───────────────────────────────────
-FROM python:3.11-slim AS final
+FROM python:3.12-slim AS final
 WORKDIR /app
 
 # Bring in uv (single static binary — fastest Python installer available)

@@ -1,10 +1,37 @@
-**/__pycache__
-**/*.pyc
-**/*.pyo
+# Never bake these into the image.
+**/.git
 **/.env
+**/.env*.local
+deploy.env
 **/node_modules
 **/dist
 **/.venv
+**/__pycache__
+**/*.pyc
+**/*.pyo
 **/.DS_Store
-**/.git
 **/coverage
+
+# Local/user state — lives in GCS (prod) or a mounted volume (docker-compose),
+# never inside the image. Keep the shipped autocomplete dictionary.
+backend/*.json
+!backend/p123_autocomplete.json
+backend/*.json.tmp
+data/
+
+# Not needed at runtime
+docs/
+scratch/
+.claude/
+.github/
+README.md
+LICENSE
+deploy.sh
+docker-compose.yml
+backend/dump_strategies.py
+backend/inspect_strategies.py
+backend/scan_ids.py
+backend/compare_dumps.py
+backend/compare_summary_details.py
+backend/get_swagger.py
+backend/p123_openapi.txt

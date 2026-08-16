@@ -1,12 +1,24 @@
+# Run the whole app (built frontend + FastAPI) in one container.
+#
+#   cp backend/.env.example backend/.env   # fill in P123 credentials
+#   docker compose up --build              # http://localhost:8080
+#
+# The app has NO authentication of its own (in production IAP provides it), so the
+# port is bound to 127.0.0.1 only. Do not expose it beyond your machine without
+# putting an authenticating proxy in front of it — anyone who can reach it can use
+# your P123 API key and rewrite your strategies.
 services:
-  backend:
+  app:
     build:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     env_file:
       - backend/.env
     environment:
-      - ENV=production
+      # Persist strategy lists / settings / perturbation history across restarts.
+      - STATE_DIR=/data
+    volumes:
+      - ./data:/data
     restart: unless-stopped

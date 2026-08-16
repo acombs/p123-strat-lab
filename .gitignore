@@ -22,16 +22,14 @@ __pycache__/
 Thumbs.db
 
 # Local/user state — recreated by the app (never publish strategy lists or
-# shadow-sim settings)
-backend/settings.json
-backend/strategies.json
-backend/universes.json
-backend/ranking_systems.json
-backend/perturb_last.json
-backend/perturb_jobs.json
-backend/perturb_job_*.json
-backend/strategy_*_dump.json
+# shadow-sim settings). Everything in backend/*.json except the shipped
+# autocomplete dictionary.
+backend/*.json
+!backend/p123_autocomplete.json
+backend/*.json.tmp
 backend/p123_openapi.txt
+# docker-compose state volume
+data/
 
 # Dev exploration / one-off research scripts
 scratch/
