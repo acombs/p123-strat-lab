@@ -11,6 +11,7 @@ import TradesPanel from './TradesPanel'
 import MonteCarloPanel from './MonteCarloPanel'
 import PerturbationsPanel from './PerturbationsPanel'
 import RobustnessPanel from './RobustnessPanel'
+import AttributionPanel from './AttributionPanel'
 
 interface Props {
   result: BacktestResult | null
@@ -18,7 +19,7 @@ interface Props {
   config: StrategyConfig
 }
 
-type ChartTab = 'equity' | 'drawdown' | 'rolling-sharpe' | 'rolling-returns' | 'annual' | 'monte-carlo' | 'robustness' | 'perturbations' | 'trades'
+type ChartTab = 'equity' | 'drawdown' | 'rolling-sharpe' | 'rolling-returns' | 'annual' | 'monte-carlo' | 'robustness' | 'attribution' | 'perturbations' | 'trades'
 
 const TABS: { key: ChartTab; label: string }[] = [
   { key: 'equity', label: 'Equity Curve' },
@@ -28,6 +29,7 @@ const TABS: { key: ChartTab; label: string }[] = [
   { key: 'annual', label: 'Annual Returns' },
   { key: 'monte-carlo', label: 'Monte Carlo' },
   { key: 'robustness', label: 'Robustness' },
+  { key: 'attribution', label: 'Attribution' },
   { key: 'perturbations', label: 'Perturbations' },
   { key: 'trades', label: 'Trades' },
 ]
@@ -148,6 +150,14 @@ export default function Results({ result, loading, config }: Props) {
                   Start-date sensitivity — every possible investment window inside the backtest
                 </p>
                 <RobustnessPanel curve={equityCurve} />
+              </div>
+            )}
+            {activeTab === 'attribution' && (
+              <div>
+                <p className="mb-3 text-xs text-[var(--text-muted)]">
+                  Alpha or repackaged beta? Daily excess returns regressed on Fama-French factors (CAPM → FF5+Mom).
+                </p>
+                <AttributionPanel curve={equityCurve} />
               </div>
             )}
             {activeTab === 'perturbations' && (

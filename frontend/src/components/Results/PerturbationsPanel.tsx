@@ -15,7 +15,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import type { Metrics, PerturbJob, PerturbJobSummary, PerturbRunResult, StrategyConfig } from '../../types'
+import type { Metrics, PboResult, PerturbJob, PerturbJobSummary, PerturbRunResult, StrategyConfig } from '../../types'
 import type { DetectedParam, PerturbPreset } from '../../utils/perturb'
 import { buildPlan, detectParams } from '../../utils/perturb'
 import { BAR_ACTIVE, TOOLTIP_PROPS } from './chartTheme'
@@ -159,6 +159,25 @@ export default function PerturbationsPanel({ config }: Props) {
   const chargeableRuns = plan.length - (baselineReused ? 1 : 0)
   const estCredits = Math.round(chargeableRuns * costPerRun)
   const running = job?.state === 'running'
+
+  // Probability of backtest overfitting (CSCV) over the job's variants — computed
+  // server-side from the stored per-variant return series; zero credits.
+  const [pbo, setPbo] = useState<PboResult | null>(null)
+  const [pboNote, setPboNote] = useState<string | null>(null)
+  useEffect(() => {
+    setPbo(null)
+    setPboNote(null)
+    if (!job?.jobId || running) return
+    fetch(`/api/perturb/jobs/${job.jobId}/pbo`)
+      .then(async (r) => {
+        if (r.ok) setPbo(await r.json())
+        else {
+          const e = await r.json().catch(() => ({}))
+          setPboNote(e.detail ?? 'PBO unavailable for this job')
+        }
+      })
+      .catch(() => setPboNote('PBO unavailable'))
+  }, [job?.jobId, running])
 
   async function fetchStatus() {
     try {
@@ -533,6 +552,41 @@ export default function PerturbationsPanel({ config }: Props) {
             <p className="text-[11px] text-[var(--pastel-red-text)]">
               {failedRuns.length} run{failedRuns.length > 1 ? 's' : ''} failed — first error: {failedRuns[0].error}
             </p>
+          )}
+          {!running && (pbo || pboNote) && (
+            <div className={`card p-3 mt-2 border-l-4 ${
+              !pbo ? 'border-l-[var(--border-color)]'
+              : pbo.pbo >= 0.5 ? 'border-l-[var(--pastel-red-text)]'
+              : pbo.pbo >= 0.2 ? 'border-l-[var(--pastel-yellow-text)]'
+              : 'border-l-[var(--pastel-green-text)]'}`}>
+              {pbo ? (
+                <>
+                  <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                    <span className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                      Probability of backtest overfitting
+                    </span>
+                    <span className={`text-lg font-bold tabular-nums ${
+                      pbo.pbo >= 0.5 ? 'negative' : pbo.pbo >= 0.2 ? '' : 'positive'}`}>
+                      {(pbo.pbo * 100).toFixed(0)}%
+                    </span>
+                    <span className="text-[11px] text-[var(--text-muted)]">
+                      {pbo.nConfigs} configs · {pbo.nPeriods} days · {pbo.nCombos.toLocaleString()} partitions (S={pbo.splits})
+                      · IS-winner OOS Sharpe {pbo.meanOosSharpeOfWinnerAnn.toFixed(2)} · median OOS rank {(pbo.medianRank * 100).toFixed(0)}th pct
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[11px] text-[var(--text-muted)] leading-relaxed">
+                    {pbo.pbo >= 0.5
+                      ? 'Picking the best in-sample variant would have underperformed the median variant out of sample more often than not — the selection procedure is fitting noise.'
+                      : pbo.pbo >= 0.2
+                      ? 'Meaningful overfitting risk: the in-sample winner is often not the out-of-sample winner. Prefer variants that are good across the sweep, not the single best.'
+                      : 'Selection carried real information across sub-periods (this validates the procedure, not the strategy). PBO on a single sweep is noisy — do not over-read a value near a boundary.'}
+                    {' '}CSCV, Bailey et al. (2014). Zero credits.
+                  </p>
+                </>
+              ) : (
+                <p className="text-[11px] text-[var(--text-muted)]">PBO: {pboNote}</p>
+              )}
+            </div>
           )}
         </div>
       )}

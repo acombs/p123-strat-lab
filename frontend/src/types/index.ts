@@ -239,3 +239,49 @@ export interface StrategyOption {
   isLive: boolean
 }
 
+
+export interface FactorLoading {
+  factor: string
+  beta: number
+  t: number | null
+}
+
+export interface AttributionModel {
+  model: string
+  alphaAnn: number
+  alphaT: number | null
+  alphaP: number | null
+  r2: number
+  loadings: FactorLoading[]
+}
+
+export interface AttributionResult {
+  n: number
+  years: number
+  startDate: string
+  endDate: string
+  unmatchedDays: number
+  models: AttributionModel[]
+  alphaSurvives: boolean
+  richestModel: string
+  factorData: {
+    source: 'cache' | 'fresh'
+    ageDays: number | null
+    lastDate: string | null
+    refreshError: string | null
+  }
+}
+
+export interface PboResult {
+  jobId: string
+  pbo: number
+  nCombos: number
+  nConfigs: number
+  nPeriods: number
+  splits: number
+  medianRank: number
+  medianLogit: number
+  meanOosSharpeOfWinnerAnn: number
+  logitHistogram: { lo: number; hi: number; count: number }[]
+  configIds: string[]
+}

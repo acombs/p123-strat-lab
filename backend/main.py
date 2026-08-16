@@ -18,6 +18,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import factors
+import pbo
 import storage
 import survival
 
@@ -948,6 +950,30 @@ def recompute_dsr(req: SurvivalRecomputeRequest):
     return survival.dsr_block(req.srDaily, req.n, req.skew, req.kurt, req.trials)
 
 
+# ── Factor attribution ───────────────────────────────────────────────────────
+
+class AttributionRequest(BaseModel):
+    equityCurve: list[dict]
+    refresh: bool = False
+
+
+@app.post("/api/attribution")
+def run_attribution(req: AttributionRequest):
+    """Fama-French attribution of the backtest's daily excess returns. Zero P123 credits;
+    factor data comes from the Ken French library (cached, refreshed weekly)."""
+    data, meta = factors.load_factors(force_refresh=req.refresh)
+    if not data:
+        raise HTTPException(status_code=502, detail=(
+            "Could not load Fama-French factor data from the Ken French library and no cached "
+            f"copy exists: {meta.get('refreshError')}"))
+    try:
+        res = factors.attribute(req.equityCurve, data)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    res["factorData"] = meta
+    return res
+
+
 # ── Perturbation testing ──────────────────────────────────────────────────────
 # Sensitivity analysis: rerun the shadow sim over a list of config variants and
 # collect the metrics of each. This burns real API quota (one rerun per
@@ -958,6 +984,19 @@ def recompute_dsr(req: SurvivalRecomputeRequest):
 _PERTURB_LOCK = threading.Lock()
 _PERTURB_CANCEL = threading.Event()
 _PERTURB_STATE: dict = {"state": "idle", "runs": []}
+# Per-variant daily return series for the running job (run id -> list[float]).
+# Persisted at job end as perturb_returns_<jobId> so PBO can be computed later.
+_PERTURB_RETURNS: dict = {"dates": None, "returns": {}}
+
+
+def _curve_returns(curve: list[dict]) -> tuple[list[str], list[float]]:
+    pts = [p for p in curve if p.get("portfolio") is not None]
+    dates, rets = [], []
+    for a, b in zip(pts[:-1], pts[1:]):
+        if a["portfolio"] > 0:
+            dates.append(str(b["date"])[:10])
+            rets.append(round(b["portfolio"] / a["portfolio"] - 1.0, 7))
+    return dates, rets
 
 
 class PerturbRun(BaseModel):
@@ -1033,6 +1072,11 @@ def _persist_perturb(final: bool = False):
     if final and snap.get("jobId"):
         storage.save_json(f"perturb_job_{snap['jobId']}", snap)
         _update_perturb_index(snap)
+        with _PERTURB_LOCK:
+            rets = dict(_PERTURB_RETURNS["returns"])
+            dates = _PERTURB_RETURNS["dates"]
+        if len(rets) >= 2:
+            storage.save_json(f"perturb_returns_{snap['jobId']}", {"dates": dates, "returns": rets})
 
 
 def _perturb_worker(runs: list[PerturbRun], quota_floor: int):
@@ -1062,6 +1106,12 @@ def _perturb_worker(runs: list[PerturbRun], quota_floor: int):
                 "warning": result.get("warning"),
                 "elapsedSec": round(time.time() - started, 1),
             }
+            dts, rets = _curve_returns(result.get("equityCurve") or [])
+            with _PERTURB_LOCK:
+                if _PERTURB_RETURNS["dates"] is None:
+                    _PERTURB_RETURNS["dates"] = dts
+                if dts == _PERTURB_RETURNS["dates"]:
+                    _PERTURB_RETURNS["returns"][run.id] = rets
             consecutive_errors = 0
         except HTTPException as he:
             entry = {"error": str(he.detail), "elapsedSec": round(time.time() - started, 1)}
@@ -1110,6 +1160,8 @@ def perturb_start(req: PerturbStartRequest):
             raise HTTPException(status_code=409, detail="A perturbation job is already running.")
         _PERTURB_CANCEL.clear()
         _PERTURB_STATE.clear()
+        _PERTURB_RETURNS["dates"] = None
+        _PERTURB_RETURNS["returns"] = {}
         _PERTURB_STATE.update({
             "jobId": datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S"),
             "state": "running",
@@ -1146,6 +1198,10 @@ def perturb_start(req: PerturbStartRequest):
                     "costCredits": 0,
                     "reused": True,
                 })
+                prev_rets = storage.load_json(f"perturb_returns_{last.get('jobId')}", None) if last.get("jobId") else None
+                if prev_rets and prev_base.get("id") in prev_rets.get("returns", {}):
+                    _PERTURB_RETURNS["dates"] = prev_rets["dates"]
+                    _PERTURB_RETURNS["returns"][new_base["id"]] = prev_rets["returns"][prev_base["id"]]
 
     threading.Thread(target=_perturb_worker, args=(req.runs, req.quotaFloor), daemon=True).start()
     return {"jobId": _PERTURB_STATE["jobId"], "total": len(req.runs)}
@@ -1207,6 +1263,34 @@ def perturb_job(job_id: str):
     if not job:
         raise HTTPException(status_code=404, detail=f"Perturbation job {job_id} not found.")
     return job
+
+
+@app.get("/api/perturb/jobs/{job_id}/pbo")
+def perturb_pbo(job_id: str, splits: int = Query(default=16, ge=4, le=20)):
+    """Probability of backtest overfitting (CSCV) over the job's variants. Zero credits."""
+    if not _JOB_ID_RE.match(job_id):
+        raise HTTPException(status_code=400, detail="Invalid job id.")
+    data = storage.load_json(f"perturb_returns_{job_id}", None)
+    if not data:
+        # The running/just-finished job may still be in memory only.
+        with _PERTURB_LOCK:
+            if _PERTURB_STATE.get("jobId") == job_id and len(_PERTURB_RETURNS["returns"]) >= 2:
+                data = {"dates": _PERTURB_RETURNS["dates"], "returns": dict(_PERTURB_RETURNS["returns"])}
+    if not data or len(data.get("returns", {})) < 2:
+        raise HTTPException(status_code=404, detail=(
+            "No per-variant return series stored for this job (jobs run before PBO support, "
+            "or fewer than two successful variants)."))
+    ids = list(data["returns"].keys())
+    matrix = np.column_stack([data["returns"][i] for i in ids])
+    if splits % 2:
+        splits += 1
+    try:
+        res = pbo.cscv(matrix, splits=splits)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    res["jobId"] = job_id
+    res["configIds"] = ids
+    return res
 
 
 @app.post("/api/perturb/cancel")

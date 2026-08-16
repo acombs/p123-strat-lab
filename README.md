@@ -51,13 +51,19 @@ Cloud Run behind IAP.
   you add the ones made elsewhere), minimum backtest length / max trials the window supports
   (Bailey & López de Prado), an autocorrelation warning, and **break-even round-trip cost in
   bps** from CAGR and turnover.
+- **Factor attribution** — alpha or repackaged beta? Daily excess returns regressed on CAPM,
+  FF3, Carhart-4, FF5 and FF5+Mom (Ken French daily library, Newey-West t-stats). Verdict line
+  plus the full loadings table. Factor data is fetched on demand and cached (refreshed weekly,
+  stale copy used if the fetch fails) — no scheduler needed. Zero API credits.
 - **Robustness (rolling windows)** — every possible 3/5/10-year investment window inside the
   backtest, strategy vs. benchmark, answering "did this only work because of the start date?"
   Zero API credits.
 - **Parameter perturbation (sensitivity analysis)** — one-at-a-time and joint variations of
   holdings, rebalance frequency, and numeric rule thresholds, run serially against the shadow
   sim with a quota floor and cancel button. Job history is persisted. Every variant counts
-  toward the strategy's trial count.
+  toward the strategy's trial count, and each variant's daily return series is kept so the
+  job reports a **Probability of Backtest Overfitting** (CSCV, Bailey et al. 2014) — how often
+  the in-sample winner underperforms the median out of sample. Zero extra credits.
 - **Run history** — the last 20 runs with config summaries and side-by-side metric comparison.
 - **Live API quota meter** — every P123 response's `cost`/`quotaRemaining` is surfaced in the
   header, with a low-credit warning.
@@ -218,6 +224,7 @@ the repo.
 - Each backtest is one `rerun` + one results fetch (typically ~30–50 credits depending on the
   period). Monte Carlo, Robustness, and run-history comparisons consume **no** credits; the
   Trades tab and trade-level Monte Carlo stats use one cached transactions fetch.
+- Attribution, PBO, Statistical Survival, Monte Carlo and Robustness never call P123.
 - Perturbation jobs cost one backtest per variant. They stop automatically when the quota
   meter falls below the floor you set (default 500), after two consecutive failures, or when
   you press cancel. A baseline identical to the previous job's is reused rather than rerun.
@@ -249,6 +256,9 @@ public issue.
 ```
 backend/
   main.py                  # FastAPI app: P123 client, shadow-sim flow, analytics, perturbations
+  survival.py              # Sharpe SE/CI, PSR, deflated Sharpe, MinTRL/MinBTL, break-even
+  factors.py               # Ken French fetch/cache + Fama-French HAC attribution
+  pbo.py                   # CSCV probability of backtest overfitting
   storage.py               # GCS / STATE_DIR / local JSON state persistence
   generate_autocomplete.py # builds p123_autocomplete.json from the P123 skill's references
   p123_autocomplete.json   # verified formula dictionary served to the frontend
