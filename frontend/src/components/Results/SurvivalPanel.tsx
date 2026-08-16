@@ -115,7 +115,7 @@ export default function SurvivalPanel({ survival, strategyId }: Props) {
         </span>
       </div>
 
-      <div className="grid grid-cols-2 gap-2.5">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
         <div className="metric-card">
           <span className="metric-label">Sharpe 95% CI</span>
           <span className="metric-value neutral">

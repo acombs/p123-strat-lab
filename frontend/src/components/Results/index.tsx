@@ -87,8 +87,8 @@ export default function Results({ result, loading, config }: Props) {
   const metrics = result?.metrics ?? null
 
   return (
-    <div className="grid gap-6 grid-cols-1 lg:grid-cols-[1fr_320px] xl:grid-cols-[1fr_360px]">
-      {/* Left: Charts card */}
+    <div className="grid gap-6 grid-cols-1">
+      {/* Charts card — full width; metrics live under the equity curve */}
       <div className="card overflow-hidden flex flex-col justify-between">
         <div>
           {/* Tab bar */}
@@ -110,6 +110,27 @@ export default function Results({ result, loading, config }: Props) {
               <div>
                 <p className="mb-3 text-xs text-[var(--text-muted)]">Log-scale equity curve — $100,000 initial investment</p>
                 <EquityChart data={equityCurve} />
+
+                {/* Metrics under the chart */}
+                <div className="mt-6 flex flex-col gap-3">
+                  <div className="flex items-center justify-between border-b pb-2 border-[var(--border-color-light)]">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)] px-1">
+                      Performance Metrics
+                    </h3>
+                  </div>
+                  {metrics ? (
+                    <>
+                      <MetricsGrid metrics={metrics} />
+                      {result?.survival && (
+                        <SurvivalPanel survival={result.survival} strategyId={config.strategyId} />
+                      )}
+                    </>
+                  ) : (
+                    <p className="px-1 text-xs text-[var(--text-muted)]">
+                      Run a backtest to populate metrics.
+                    </p>
+                  )}
+                </div>
               </div>
             )}
             {activeTab === 'drawdown' && (
@@ -190,28 +211,6 @@ export default function Results({ result, loading, config }: Props) {
         </div>
       </div>
 
-      {/* Right: Metrics sidebar */}
-      <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-between border-b pb-2 border-[var(--border-color-light)]">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)] px-1">
-            Performance Metrics
-          </h3>
-        </div>
-        <div className="flex-1 pr-1">
-          {metrics ? (
-            <>
-              <MetricsGrid metrics={metrics} />
-              {result?.survival && (
-                <SurvivalPanel survival={result.survival} strategyId={config.strategyId} />
-              )}
-            </>
-          ) : (
-            <p className="px-1 text-xs text-[var(--text-muted)]">
-              Run a backtest to populate metrics.
-            </p>
-          )}
-        </div>
-      </div>
     </div>
   )
 }
