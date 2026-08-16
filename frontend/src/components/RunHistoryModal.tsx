@@ -127,7 +127,7 @@ export default function RunHistoryModal({ history, onLoad, onDelete, onClear, on
                     type="checkbox"
                     checked={selected.includes(e.id)}
                     onChange={() => toggle(e.id)}
-                    className="h-4 w-4 shrink-0 accent-[var(--text-main)]"
+                    className="h-4 w-4 shrink-0"
                     title="Select for comparison"
                   />
                   <div className="min-w-0 flex-1">
