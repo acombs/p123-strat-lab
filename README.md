@@ -8,7 +8,7 @@ when you're happy with it.
 Built with FastAPI + React (Vite, Tailwind, Recharts). Runs locally, in Docker, or on Google
 Cloud Run behind IAP.
 
-![Equity curve and performance metrics](docs/screenshots/equity-curve.webp)
+![Equity curve, performance metrics and statistical survival](docs/screenshots/equity-curve.webp)
 
 > Independent community project. Not affiliated with, sponsored by, or endorsed by
 > Portfolio123, Inc. Nothing here is investment advice. Backtests are hypothetical and the tool
@@ -73,6 +73,17 @@ Cloud Run behind IAP.
 <details>
 <summary>More screenshots</summary>
 
+**Attribution** — alpha or repackaged beta? CAPM → FF5+Mom with Newey-West t-stats. Here a
+24%/yr CAPM "alpha" shrinks to an insignificant 13% once value, profitability and momentum
+are priced:
+
+![Fama-French attribution](docs/screenshots/attribution.webp)
+
+**Statistical survival** — Sharpe confidence interval, deflated Sharpe against the trial
+count, and break-even trading cost:
+
+![Statistical survival](docs/screenshots/statistical-survival.webp)
+
 **Monte Carlo** — block-bootstrapped forward paths with drawdown risk and trade-level edge stats:
 
 ![Monte Carlo simulation](docs/screenshots/monte-carlo.webp)
@@ -80,6 +91,11 @@ Cloud Run behind IAP.
 **Robustness** — every rolling investment window, strategy vs. benchmark:
 
 ![Rolling-window robustness](docs/screenshots/robustness.webp)
+
+**Perturbations** — one-at-a-time and joint sensitivity sweeps on the shadow sim, with PBO
+reported per job:
+
+![Parameter perturbations](docs/screenshots/perturbations.webp)
 
 **Rolling returns** and the **strategy configuration** form with verified formula autocomplete:
 
