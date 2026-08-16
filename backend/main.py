@@ -1,10 +1,11 @@
+import logging
 import os
 import math
 import re
 import threading
 import time
 from collections import defaultdict, deque
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional, Union
 
@@ -26,7 +27,9 @@ P123_API_ID = os.environ.get("P123_API_ID", "")
 P123_API_KEY = os.environ.get("P123_API_KEY", "")
 P123_BASE_URL = "https://api.portfolio123.com"
 
-app = FastAPI(title="P123 Strategy Tester")
+log = logging.getLogger("p123-strategy-lab")
+
+app = FastAPI(title="P123 Strategy Lab")
 
 if os.environ.get("ENV") == "development":
     app.add_middleware(
@@ -54,18 +57,39 @@ _P123_LOCK = threading.Lock()
 QUOTA_STATE: dict = {"quotaRemaining": None, "lastCost": None, "updatedAt": None}
 
 
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
 def _bearer_token() -> str:
     """Authenticate and return a fresh or cached Bearer token."""
     now = time.time()
     if _TOKEN_CACHE["token"] and _TOKEN_CACHE["expiry"] > now + 30:
         return _TOKEN_CACHE["token"]
 
-    r = requests.post(
-        f"{P123_BASE_URL}/auth",
-        json={"apiId": P123_API_ID, "apiKey": P123_API_KEY},
-        timeout=30,
-    )
-    r.raise_for_status()
+    if not P123_API_ID or not P123_API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="Portfolio123 credentials are not configured. Set P123_API_ID and "
+                   "P123_API_KEY in backend/.env (see backend/.env.example) and restart.",
+        )
+    try:
+        r = requests.post(
+            f"{P123_BASE_URL}/auth",
+            json={"apiId": P123_API_ID, "apiKey": P123_API_KEY},
+            timeout=30,
+        )
+    except requests.RequestException as e:
+        raise HTTPException(status_code=502, detail=f"Could not reach Portfolio123: {e}")
+    if r.status_code in (400, 401, 403):
+        raise HTTPException(
+            status_code=502,
+            detail="Portfolio123 rejected the API credentials. Check P123_API_ID / "
+                   "P123_API_KEY (Account Settings → API on portfolio123.com; API access "
+                   "requires a paid plan).",
+        )
+    if not r.ok:
+        raise HTTPException(status_code=502, detail=f"Portfolio123 auth failed ({r.status_code}): {r.text[:200]}")
     token = r.text.strip()
 
     expires_in_sec = 3600
@@ -91,7 +115,7 @@ def _track_quota(data: Any) -> None:
     if isinstance(data, dict) and "quotaRemaining" in data:
         QUOTA_STATE["quotaRemaining"] = data.get("quotaRemaining")
         QUOTA_STATE["lastCost"] = data.get("cost")
-        QUOTA_STATE["updatedAt"] = datetime.utcnow().isoformat() + "Z"
+        QUOTA_STATE["updatedAt"] = _utc_now_iso()
 
 
 def _p123_request(method: str, endpoint: str, payload: Optional[dict] = None,
@@ -155,21 +179,53 @@ def _save_strategies_list(strategies: list[dict]):
     storage.save_json("strategies", _dedupe(strategies, lambda s: s["id"]))
 
 
-DEFAULT_UNIVERSES = [
-    {"value": "SP500", "label": "S&P 500"},
-    {"value": "SP400", "label": "S&P 400 (Mid Cap)"},
-    {"value": "SP600", "label": "S&P 600 (Small Cap)"},
-    {"value": "SP1500", "label": "S&P 1500"},
-    {"value": "Prussell1000", "label": "Russell 1000"},
-    {"value": "Prussell2000", "label": "Russell 2000"},
-    {"value": "Prussell3000", "label": "Russell 3000"},
-    {"value": "ALLSTOCKS", "label": "All Stocks"},
-    {"value": "NASDAQ100", "label": "NASDAQ 100"},
-    {"value": "LargeCap", "label": "Large Cap"},
-    {"value": "MidCap", "label": "Mid Cap"},
-    {"value": "SmallCap", "label": "Small Cap"},
-    {"value": "MicroCap", "label": "Micro Cap"},
+# Portfolio123's built-in (predefined) universes. `value` is the API universe
+# code (from P123's Factor Reference → Constants → Universe IDs); `label` is what
+# the UI shows; `aliases` are lower-cased names/substrings the P123 API has been
+# seen to return for the universe (e.g. `universe: "S&P500 LargeCap (IVV)"`),
+# used to map a loaded strategy back to its code. Order matters for matching:
+# more specific entries (SP1500 before SP500, "russell 1000" before "russell")
+# come first.
+BUILTIN_UNIVERSES: list[dict] = [
+    # Major USA
+    {"value": "SP1500", "label": "S&P 1500", "aliases": ["sp1500", "s&p 1500", "s&p1500", "ivv+ijh+ijr"]},
+    {"value": "SP500", "label": "S&P 500", "aliases": ["sp500", "s&p 500", "s&p500", "s&p500 largecap (ivv)"]},
+    {"value": "SP400", "label": "S&P 400 (Mid Cap)", "aliases": ["sp400", "s&p 400", "s&p400", "s&p400 midcap (ijh)"]},
+    {"value": "SP600", "label": "S&P 600 (Small Cap)", "aliases": ["sp600", "s&p 600", "s&p600", "s&p600 smallcap (ijr)"]},
+    {"value": "Prussell1000", "label": "Russell 1000", "aliases": ["prussell1000", "russell 1000", "russell1000"]},
+    {"value": "Prussell2000", "label": "Russell 2000", "aliases": ["prussell2000", "russell 2000", "russell2000"]},
+    {"value": "Prussell3000", "label": "Russell 3000", "aliases": ["prussell3000", "russell 3000", "russell3000"]},
+    {"value": "DJIA", "label": "Dow Jones Industrial Average", "aliases": ["djia", "dow jones", "dow 30"]},
+    {"value": "NASDAQ100", "label": "NASDAQ 100", "aliases": ["nasdaq100", "nasdaq 100", "nasdaq-100"]},
+    # Cap tiers
+    {"value": "LargeCap", "label": "Large Cap", "aliases": ["largecap", "large cap"]},
+    {"value": "MidCap", "label": "Mid Cap", "aliases": ["midcap", "mid cap"]},
+    {"value": "SmallCap", "label": "Small Cap", "aliases": ["smallcap", "small cap"]},
+    {"value": "MicroCap", "label": "Micro Cap", "aliases": ["microcap", "micro cap"]},
+    # Broad
+    {"value": "ALLSTOCKS", "label": "All Stocks", "aliases": ["allstocks", "all stocks", "all listed stocks", "all listed"]},
+    {"value": "ALLFUND", "label": "All Fundamentals", "aliases": ["allfund", "all fundamentals"]},
+    {"value": "NOOTC", "label": "No OTC (all exchange-listed)", "aliases": ["nootc", "no otc"]},
+    # Exchanges
+    {"value": "NYSE", "label": "NYSE", "aliases": ["nyse", "ny stock exchange", "new york stock exchange"]},
+    {"value": "NASD", "label": "NASDAQ Exchange", "aliases": ["nasd", "nasdaq exchange"]},
+    {"value": "NYSEMKT", "label": "NYSE American (AMEX)", "aliases": ["nysemkt", "nyse mkt", "amex", "nyse american"]},
+    {"value": "OTC", "label": "OTC (Over The Counter)", "aliases": ["otc", "over the counter"]},
+    # Other
+    {"value": "MasterLP", "label": "Master Limited Partnerships", "aliases": ["masterlp", "master limited partnerships", "mlp"]},
+    {"value": "$ADR", "label": "ADRs (American Depositary Receipts)", "aliases": ["$adr", "adr", "american depositary receipt"]},
 ]
+
+# Numeric universeUid values the P123 API returns for built-in universes
+# (positive = built-in, negative = custom/user universe). Observed values only —
+# extend as more are confirmed. Names are matched as a fallback.
+BUILTIN_UNIVERSE_UIDS: dict[int, str] = {
+    19114: "SP500",     # "S&P500 LargeCap (IVV)"
+    23465: "LargeCap",
+    43418: "ALLSTOCKS",
+}
+
+DEFAULT_UNIVERSES = [{"value": u["value"], "label": u["label"]} for u in BUILTIN_UNIVERSES]
 
 # Ranking systems auto-register when a strategy that uses them is loaded;
 # custom entries can be added in the UI.
@@ -576,47 +632,30 @@ def _build_rebal_params(sizing_method: str, holdings: Optional[int], rebal_freq:
 
 
 def _map_universe_uid_to_code(universe_uid: int, universe_name: str) -> str:
+    """Map a strategy's (universeUid, universe name) from the P123 API to the code
+    the rerun/trading-system endpoints accept.
+
+    Custom universes have negative UIDs and are addressed by that number. Built-in
+    universes are matched by known UID, then by exact name/alias, then by alias
+    substring (table order = specificity). Anything else falls back to the name,
+    which is auto-registered as a custom universe entry.
+    """
     if universe_uid < 0:
         return str(abs(universe_uid))
+    if universe_uid in BUILTIN_UNIVERSE_UIDS:
+        return BUILTIN_UNIVERSE_UIDS[universe_uid]
 
-    name_lower = universe_name.lower()
-
-    # 1. Custom UID overrides
-    if universe_uid == 19114:
-        return "SP500"
-    if universe_uid == 23465:
-        return "LargeCap"
-    if universe_uid == 43418:
-        return "ALLSTOCKS"
-
-    # 2. Substring matching (Check SP500 before Large Cap to avoid wrong matches on S&P500 LargeCap name)
-    if "sp500" in name_lower or "s&p 500" in name_lower or "s&p500" in name_lower:
-        return "SP500"
-    if "largecap" in name_lower or "large cap" in name_lower:
-        return "LargeCap"
-    if "sp400" in name_lower or "s&p 400" in name_lower or "s&p400" in name_lower:
-        return "SP400"
-    if "sp600" in name_lower or "s&p 600" in name_lower or "s&p600" in name_lower:
-        return "SP600"
-    if "sp1500" in name_lower or "s&p 1500" in name_lower or "s&p1500" in name_lower:
-        return "SP1500"
-    if "russell 1000" in name_lower:
-        return "Prussell1000"
-    if "russell 2000" in name_lower:
-        return "Prussell2000"
-    if "russell 3000" in name_lower:
-        return "Prussell3000"
-    if "all listed stocks" in name_lower or "all listed" in name_lower or "allstocks" in name_lower or "all stocks" in name_lower:
-        return "ALLSTOCKS"
-    if "nasdaq" in name_lower or "nasdaq 100" in name_lower or "nasdaq100" in name_lower:
-        return "NASDAQ100"
-    if "midcap" in name_lower or "mid cap" in name_lower:
-        return "MidCap"
-    if "smallcap" in name_lower or "small cap" in name_lower:
-        return "SmallCap"
-    if "microcap" in name_lower or "micro cap" in name_lower:
-        return "MicroCap"
-
+    name = universe_name.strip().lower()
+    if not name:
+        return universe_name
+    for u in BUILTIN_UNIVERSES:
+        if name == u["value"].lower() or name == u["label"].lower() or name in u["aliases"]:
+            return u["value"]
+    for u in BUILTIN_UNIVERSES:
+        # Short aliases (e.g. "otc", "adr", "mlp") are only accepted as exact
+        # matches above; substring matching them would hit "NOOTC"/"Prussell".
+        if any(len(a) > 4 and a in name for a in u["aliases"]):
+            return u["value"]
     return universe_name
 
 
@@ -668,7 +707,7 @@ def get_strategy_trading_system(strategy_id: int):
                     systems.append({"id": ranking_sys_uid, "name": ranking_sys})
                     _save_ranking_systems(systems)
             except Exception as e:
-                print(f"Failed to auto-register ranking system: {e}")
+                log.warning("Failed to auto-register ranking system: %s", e)
 
             # Fallback to name if rank UID is matched in our list
             for rs in _load_ranking_systems():
@@ -688,7 +727,7 @@ def get_strategy_trading_system(strategy_id: int):
                 universes_list.append({"value": universe_code, "label": universe_name})
                 _save_universes(universes_list)
         except Exception as e:
-            print(f"Failed to auto-register universe: {e}")
+            log.warning("Failed to auto-register universe: %s", e)
 
         return {
             "universe": universe_code,
@@ -973,7 +1012,7 @@ def _perturb_worker(runs: list[PerturbRun], quota_floor: int):
 
     with _PERTURB_LOCK:
         _PERTURB_STATE["state"] = final_state
-        _PERTURB_STATE["finishedAt"] = datetime.utcnow().isoformat() + "Z"
+        _PERTURB_STATE["finishedAt"] = _utc_now_iso()
     _persist_perturb(final=True)
 
 
@@ -996,9 +1035,9 @@ def perturb_start(req: PerturbStartRequest):
         _PERTURB_CANCEL.clear()
         _PERTURB_STATE.clear()
         _PERTURB_STATE.update({
-            "jobId": datetime.utcnow().strftime("%Y%m%d-%H%M%S"),
+            "jobId": datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S"),
             "state": "running",
-            "startedAt": datetime.utcnow().isoformat() + "Z",
+            "startedAt": _utc_now_iso(),
             "finishedAt": None,
             "total": len(req.runs),
             "completed": 0,
