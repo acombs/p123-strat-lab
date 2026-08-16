@@ -44,12 +44,20 @@ Cloud Run behind IAP.
   distributions, P(loss), P(underperforming the benchmark), drawdown-threshold probabilities,
   plus a trade-level bootstrap (FIFO round-trip pairing) for expectancy confidence intervals
   and losing-streak statistics. Costs zero API credits.
+- **Statistical survival** — the tests the audit literature says to run and nobody does, all
+  computed from the daily curve at zero API cost: Sharpe with Lo (2002) standard error and 95%
+  CI, Probabilistic Sharpe (P(SR > 0)) and minimum track record, **Deflated Sharpe** against an
+  honest **trial count** (the app counts every backtest and perturbation variant it runs, and
+  you add the ones made elsewhere), minimum backtest length / max trials the window supports
+  (Bailey & López de Prado), an autocorrelation warning, and **break-even round-trip cost in
+  bps** from CAGR and turnover.
 - **Robustness (rolling windows)** — every possible 3/5/10-year investment window inside the
   backtest, strategy vs. benchmark, answering "did this only work because of the start date?"
   Zero API credits.
 - **Parameter perturbation (sensitivity analysis)** — one-at-a-time and joint variations of
   holdings, rebalance frequency, and numeric rule thresholds, run serially against the shadow
-  sim with a quota floor and cancel button. Job history is persisted.
+  sim with a quota floor and cancel button. Job history is persisted. Every variant counts
+  toward the strategy's trial count.
 - **Run history** — the last 20 runs with config summaries and side-by-side metric comparison.
 - **Live API quota meter** — every P123 response's `cost`/`quotaRemaining` is surfaced in the
   header, with a low-credit warning.
@@ -88,6 +96,10 @@ that you create once in the P123 UI:
 3. Optional: if any of your strategies use **static** position sizing (fixed weight %), create
    a second scratch sim with static sizing and add it too — the API cannot switch a sim's
    sizing method, so a matching shadow is needed for exact results.
+4. **Match the transaction costs.** The rerun API cannot set slippage or commissions, so
+   every test inherits the *shadow sim's* cost settings, not the target's. Set the shadow
+   sim's slippage/commission on P123 to match the strategies you test — otherwise results are
+   systematically flattered (or penalised) relative to the real sim.
 
 Every backtest then runs on the shadow sim with your test config overriding everything;
 **Save** is the only action that writes to the strategy you selected. If no shadow sim is
@@ -110,7 +122,7 @@ Backend (terminal 1):
 cd backend
 cp .env.example .env          # fill in P123_API_ID / P123_API_KEY
 uv sync
-uv run uvicorn main:app --port 8000 --reload
+uv run python -m uvicorn main:app --port 8000 --reload
 ```
 
 Frontend (terminal 2; the Vite dev server proxies `/api` to `:8000`):

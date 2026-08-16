@@ -81,6 +81,12 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
               Portfolio123 (any settings), then paste its ID below. Without one, runs fall back to rerunning
               the selected sim directly — which permanently changes it on P123.
             </p>
+            <p className="mt-2 text-xs text-[var(--text-muted)]">
+              <b>Match the costs.</b> The rerun API cannot set slippage or commissions, so every test
+              uses the <em>shadow sim's</em> transaction-cost settings, not the target's. Configure the
+              shadow sim's slippage/commission on P123 to match the strategies you test — otherwise
+              results are systematically flattered (or penalised) relative to the real sim.
+            </p>
           </div>
 
           {loading ? (

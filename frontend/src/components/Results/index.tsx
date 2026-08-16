@@ -5,6 +5,7 @@ import AnnualReturnsChart from './AnnualReturnsChart'
 import DrawdownChart from './DrawdownChart'
 import EquityChart from './EquityChart'
 import MetricsGrid from './MetricsGrid'
+import SurvivalPanel from './SurvivalPanel'
 import RollingChart from './RollingChart'
 import TradesPanel from './TradesPanel'
 import MonteCarloPanel from './MonteCarloPanel'
@@ -188,7 +189,12 @@ export default function Results({ result, loading, config }: Props) {
         </div>
         <div className="flex-1 pr-1">
           {metrics ? (
-            <MetricsGrid metrics={metrics} />
+            <>
+              <MetricsGrid metrics={metrics} />
+              {result?.survival && (
+                <SurvivalPanel survival={result.survival} strategyId={config.strategyId} />
+              )}
+            </>
           ) : (
             <p className="px-1 text-xs text-[var(--text-muted)]">
               Run a backtest to populate metrics.

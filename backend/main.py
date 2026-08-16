@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import storage
+import survival
 
 # Anchor .env to this file's directory so uvicorn can be started from any cwd.
 load_dotenv(Path(__file__).parent / ".env", override=True)
@@ -268,6 +269,33 @@ def _load_settings() -> dict:
 
 def _save_settings(settings: dict):
     storage.save_json("settings", settings)
+
+
+
+# ── Trial counter (selection-bias bookkeeping) ───────────────────────────────
+# Every backtest and every perturbation variant run against a strategy is one
+# "trial". The Deflated Sharpe Ratio needs an honest count; the app keeps the
+# runs it performed and lets the user add trials made elsewhere (P123 UI, other
+# tools) via `extra`. Persisted alongside the other app state.
+
+def _load_trials() -> dict:
+    return storage.load_json("trials", {})
+
+
+def _trials_for(strategy_id: int) -> dict:
+    t = _load_trials().get(str(strategy_id)) or {}
+    runs = int(t.get("runs", 0))
+    extra = int(t.get("extra", 0))
+    return {"strategyId": strategy_id, "runs": runs, "extra": extra,
+            "total": max(1, runs + extra), "total_raw": runs + extra, "since": t.get("since")}
+
+
+def _bump_trials(strategy_id: int, by: int = 1) -> int:
+    trials = _load_trials()
+    t = trials.setdefault(str(strategy_id), {"runs": 0, "extra": 0, "since": _utc_now_iso()})
+    t["runs"] = int(t.get("runs", 0)) + by
+    storage.save_json("trials", trials)
+    return max(1, t["runs"] + int(t.get("extra", 0)))
 
 
 STRATEGY_CACHE: dict = {}
@@ -764,7 +792,8 @@ def _pick_shadow_sim(target_sizing: str) -> Optional[int]:
     return dyn or static
 
 
-def _run_rerun(run_id: int, target_ts: dict, req: BacktestRequest, sizing_method: str) -> dict:
+def _run_rerun(run_id: int, target_ts: dict, req: BacktestRequest, sizing_method: str,
+               trials: int = 1) -> dict:
     """Rerun `run_id` with the requested config (defaults from target_ts) and return results."""
     rebal = target_ts.get("rebalance", {})
     rebal_params = _build_rebal_params(sizing_method, req.holdings, req.rebalFreq, rebal)
@@ -798,7 +827,7 @@ def _run_rerun(run_id: int, target_ts: dict, req: BacktestRequest, sizing_method
         raise he
 
     raw_results = p123_get(f"/strategy/{run_id}")
-    return build_response(raw_results)
+    return build_response(raw_results, trials=trials)
 
 
 @app.post("/api/backtest")
@@ -834,7 +863,12 @@ def run_backtest(req: BacktestRequest):
                    "on Portfolio123. Create a scratch SIM on P123 and add its ID in Settings "
                    "so tests never touch your real strategies.")
 
-    result = _run_rerun(run_id, ts, req, sizing_method)
+    # A completed rerun is one trial against this strategy (perturbation
+    # variants come through here too, so they count as well). Failed reruns
+    # are not counted.
+    trials = _trials_for(req.strategyId)["total_raw"] + 1
+    result = _run_rerun(run_id, ts, req, sizing_method, trials=trials)
+    _bump_trials(req.strategyId)
     result["runSimId"] = run_id
     result["shadowUsed"] = bool(shadow_id)
     result["warning"] = warning
@@ -856,7 +890,8 @@ def commit_strategy(strategy_id: int, req: BacktestRequest):
         raise HTTPException(status_code=400, detail=f"Failed to fetch strategy {strategy_id}: {str(e)}")
 
     sizing_method = ts.get("rebalance", {}).get("sizingMethod", "DYNAMIC")
-    result = _run_rerun(strategy_id, ts, req, sizing_method)
+    # Committing re-runs a config already tested; it is not a new trial.
+    result = _run_rerun(strategy_id, ts, req, sizing_method, trials=_trials_for(strategy_id)["total"])
     result["runSimId"] = strategy_id
     result["shadowUsed"] = False
     result["warning"] = None
@@ -870,6 +905,47 @@ def get_strategy_transactions(strategy_id: int, start: str, end: str):
     data = p123_get(f"/strategy/{strategy_id}/transactions", params={"start": start, "end": end})
     trans = data.get("trans", data) if isinstance(data, dict) else data
     return {"trans": trans or [], "quota": QUOTA_STATE}
+
+
+
+# ── Trials & statistical survival ────────────────────────────────────────────
+
+class TrialsUpdateRequest(BaseModel):
+    extra: Optional[int] = None   # trials made outside this app (P123 UI, etc.)
+    reset: bool = False           # zero the app-counted runs
+
+
+@app.get("/api/strategies/{strategy_id}/trials")
+def get_trials(strategy_id: int):
+    return _trials_for(strategy_id)
+
+
+@app.put("/api/strategies/{strategy_id}/trials")
+def update_trials(strategy_id: int, req: TrialsUpdateRequest):
+    trials = _load_trials()
+    t = trials.setdefault(str(strategy_id), {"runs": 0, "extra": 0, "since": _utc_now_iso()})
+    if req.reset:
+        t["runs"] = 0
+        t["since"] = _utc_now_iso()
+    if req.extra is not None:
+        t["extra"] = max(0, int(req.extra))
+    storage.save_json("trials", trials)
+    return _trials_for(strategy_id)
+
+
+class SurvivalRecomputeRequest(BaseModel):
+    srDaily: float
+    n: int
+    skew: float = 0.0
+    kurt: float = 3.0
+    trials: int = 1
+
+
+@app.post("/api/survival/dsr")
+def recompute_dsr(req: SurvivalRecomputeRequest):
+    """Recompute the trial-dependent stats (DSR, MinBTL) for a different trial count.
+    Pure arithmetic on numbers already in a result — costs no API credits."""
+    return survival.dsr_block(req.srDaily, req.n, req.skew, req.kurt, req.trials)
 
 
 # ── Perturbation testing ──────────────────────────────────────────────────────
@@ -1431,7 +1507,7 @@ def safe_float(val, default=None):
         return default
 
 
-def build_response(raw: dict) -> dict:
+def build_response(raw: dict, trials: int = 1) -> dict:
     # ── Equity curve ────────────────────────────────────────────────────────────
     # In Strategy details, raw["dailyPerf"] has lists: "date", "ret", "retBench"
     # values start at 100.0. We multiply by 10.0 to match the 1000.0 start scale of screen backtests.
@@ -1526,10 +1602,17 @@ def build_response(raw: dict) -> dict:
         "maxUnderperformanceMonths": _max_underperformance_months(equity_curve),
     }
 
+    try:
+        surv = survival.survival_stats(equity_curve, trials, metrics["turnover"], metrics["cagr"])
+    except Exception as e:  # diagnostics must never break a result
+        log.warning("survival stats failed: %s", e)
+        surv = None
+
     return {
         "equityCurve": equity_curve,
         "annualReturns": annual_returns,
         "metrics": metrics,
+        "survival": surv,
     }
 
 

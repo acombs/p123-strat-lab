@@ -60,10 +60,41 @@ export interface QuotaInfo {
   updatedAt: string | null
 }
 
+export interface SurvivalStats {
+  n: number
+  years: number
+  srDaily: number
+  skew: number | null
+  kurt: number | null
+  ar1: number | null
+  sharpeComputed: number | null
+  sharpeSE: number | null
+  sharpeCiLo: number | null
+  sharpeCiHi: number | null
+  psr: number | null
+  minTrackRecordYears: number | null
+  breakevenBps: number | null
+  // trial-dependent (recomputed via /api/survival/dsr when the count changes)
+  trials: number
+  dsr: number | null
+  expectedMaxSharpe: number | null
+  minBacktestYears: number | null
+  maxTrialsForLength: number | null
+}
+
+export interface TrialsInfo {
+  strategyId: number
+  runs: number
+  extra: number
+  total: number
+  since: string | null
+}
+
 export interface BacktestResult {
   equityCurve: EquityCurvePoint[]
   annualReturns: AnnualReturn[]
   metrics: Metrics
+  survival?: SurvivalStats | null
   runSimId?: number
   shadowUsed?: boolean
   warning?: string | null
